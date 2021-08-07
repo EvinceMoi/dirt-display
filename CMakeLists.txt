@@ -22,6 +22,7 @@ if(MSVC)
 	)
 endif()
 
+
 add_executable(dirt-display src/main.cpp
 	deps/imgui/imgui.cpp
 	deps/imgui/imgui_widgets.cpp
@@ -31,7 +32,7 @@ add_executable(dirt-display src/main.cpp
 	deps/imgui/backends/imgui_impl_win32.cpp
 	deps/imgui/backends/imgui_impl_dx11.cpp
 )
-target_include_directories(dirt-display PUBLIC ${Boost_INCLUDE_DIRS} deps/imgui)
+target_include_directories(dirt-display PUBLIC src ${Boost_INCLUDE_DIRS} deps/imgui)
 target_link_libraries(dirt-display 
 	Boost::program_options
 	Boost::context

@@ -17,6 +17,8 @@
 #include "backends/imgui_impl_win32.h"
 #include "backends/imgui_impl_dx11.h"
 
+#include "font.hpp"
+
 struct telemetry_data_t {
 	float speed;
 	float gear;
@@ -204,8 +206,22 @@ struct display {
 		data_.lap_distance = 0.f;
 
 		auto io = ImGui::GetIO();
-		auto font1 = io.Fonts->AddFontFromFileTTF("../deps/imgui/misc/fonts/DroidSans.ttf", 28.f);
-		auto font2 = io.Fonts->AddFontFromFileTTF("../deps/imgui/misc/fonts/Roboto-Medium.ttf", 80.f);
+
+		auto font1 = io.Fonts->AddFontFromMemoryCompressedTTF(
+			CascadiaMonoPL_compressed_data, 
+			CascadiaMonoPL_compressed_size, 
+			28.f
+		);
+		auto font2 = io.Fonts->AddFontFromMemoryCompressedTTF(
+			CascadiaMonoPL_compressed_data, 
+			CascadiaMonoPL_compressed_size, 
+			80.f
+		);
+		auto font_fps = io.Fonts->AddFontFromMemoryCompressedTTF(
+			CascadiaMonoPL_compressed_data, 
+			CascadiaMonoPL_compressed_size, 
+			16.f
+		);
 
 		while (!abort_) {
 			MSG msg;
@@ -414,6 +430,19 @@ struct display {
 					//		drawList->AddText(ImVec2(), color_white, s.c_str());
 					//	}
 					//}
+					{
+						// frame rate
+						ImGui::PushFont(font_fps);
+						auto s = std::to_string(static_cast<int>(io.Framerate));
+						if (s.size() < 3) {
+							auto prefix = 3 - s.size();
+							s = std::string(2, ' ') + s;
+						}
+						auto tsize = ImGui::CalcTextSize(s.c_str());
+						static ImColor c_fps{1.f, 1.f, 1.f, 0.4f};
+						drawList->AddText(ImVec2(win_x - tsize.x / 3 * 4, tsize.x / 3), c_fps, s.c_str());
+						ImGui::PopFont();
+					}
 				}
 
 				ImGui::End();
