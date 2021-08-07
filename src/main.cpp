@@ -163,6 +163,7 @@ struct display {
 
 		::ShowWindow(hwnd_, SW_SHOWDEFAULT);
 		::UpdateWindow(hwnd_);
+		::SetWindowPos(hwnd_, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
 
 		IMGUI_CHECKVERSION();
 		ImGui::CreateContext();
@@ -220,9 +221,6 @@ struct display {
 			ImGui_ImplWin32_NewFrame();
 			ImGui::NewFrame();
 
-			data_.max_rpm = 8000;
-			data_.rpm = 5900;
-
 			// draw content
 			{
 				auto io = ImGui::GetIO();
@@ -232,6 +230,9 @@ struct display {
 
 				ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
 				ImGui::Begin("Display", 0, ImGuiWindowFlags_NoDecoration);
+
+				io.WantCaptureMouse = true;
+
 				auto drawList = ImGui::GetWindowDrawList();
 				auto win_x = io.DisplaySize.x; auto win_y = io.DisplaySize.y;
 				auto color_black = ImColor(0x00, 0x00, 0x00, 0xFF);
@@ -384,6 +385,36 @@ struct display {
 					drawList->AddText(pos_b, color_white, brakes);
 					drawList->AddText(pos_t, color_white, throttle);
 				}
+				{
+					if (io.MouseClicked[1]) {
+						//toggle_window_frame();
+					}
+
+					static bool drag_moving = false;
+					static ImVec2 pos;
+					float cdelta = .00001f;
+					if (io.MouseDown[0] && io.MouseDownDuration[0] < cdelta) {
+						// mouse left down
+						drag_moving = true;
+						pos = io.MousePos;
+					}
+					if (io.MouseReleased[0]) {
+						drag_moving = false;
+					}
+					if (drag_moving) {
+						auto p = io.MousePos;
+						auto dx = p.x - pos.x;
+						auto dy = p.y - pos.y;
+						move_window(dx, dy);
+					}
+					//for (int i = 0; i < 5; i++) {
+					//	auto f = io.MouseDown[i];
+					//	if (f) {
+					//		auto s = std::to_string(i);
+					//		drawList->AddText(ImVec2(), color_white, s.c_str());
+					//	}
+					//}
+				}
 
 				ImGui::End();
 				ImGui::PopStyleVar();
@@ -406,6 +437,23 @@ struct display {
 			::DestroyWindow(hwnd_);
 			::UnregisterClass(wc_.lpszClassName, wc_.hInstance);
 		}
+	}
+	void toggle_window_frame() {
+		LONG lStyle = GetWindowLong(hwnd_, GWL_STYLE);
+		lStyle ^= WS_OVERLAPPEDWINDOW;
+		SetWindowLong(hwnd_, GWL_STYLE, lStyle);
+
+		//LONG lExStyle = GetWindowLong(hwnd_, GWL_EXSTYLE);
+		//lExStyle ^= (WS_EX_DLGMODALFRAME | WS_EX_CLIENTEDGE | WS_EX_STATICEDGE);
+		//SetWindowLong(hwnd_, GWL_EXSTYLE, lExStyle);
+		SetWindowPos(hwnd_, NULL, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER);
+	}
+	void move_window(float dx, float dy) {
+		RECT rect;
+		GetWindowRect(hwnd_, &rect);
+		auto x = rect.left + static_cast<LONG>(dx);
+		auto y = rect.top + static_cast<LONG>(dy);
+		MoveWindow(hwnd_, x, y, rect.right - rect.left, rect.bottom - rect.top, true);
 	}
 	void update(const telemetry_data_t& d) {
 		data_ = d;
