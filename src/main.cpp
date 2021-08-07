@@ -220,6 +220,9 @@ struct display {
 			ImGui_ImplWin32_NewFrame();
 			ImGui::NewFrame();
 
+			data_.max_rpm = 8000;
+			data_.rpm = 5900;
+
 			// draw content
 			{
 				auto io = ImGui::GetIO();
@@ -244,18 +247,34 @@ struct display {
 					auto max_rpm_sep = static_cast<uint8_t>(std::floor(data_.max_rpm / 1000)) + 1;
 					auto percent = data_.rpm / (max_rpm_sep * 1000);
 
-					auto color_green = ImColor(0x36, 0xDE, 0x33, 0xFF);
+					auto color_green = ImColor(0x00, 0xFF, 0x00, 0xFF);
 					auto label_len = .12f;
 
 					// draw bar
 					{
-						auto pos_tl = ImVec2(win_x * label_len, 0);
-						auto pos_br = ImVec2(win_x * (1 - label_len) * percent + win_x * label_len, win_y * 0.2);
-						auto color_left = ImColor(0x36, 0xDE, 0x33, 0xFF);
-						auto color_right = ImColor(0xDE, 0x94, 0x33, 0xFF);
-						drawList->AddRectFilledMultiColor(
-							pos_tl, pos_br, 
-							color_left, color_right, color_right, color_left);
+						// mask
+						auto sx = win_x * label_len;
+						auto ex = win_x;
+						std::array<float, 4> pos_stop = { 0.f, 0.4f, 0.64f, 1.f };
+						std::array<ImColor, 4> color_stop = {
+							color_green,
+							ImColor(0xE0, 0xFF, 0x00, 0xFF),
+							ImColor(0xFF, 0xF8, 0x00, 0xFF),
+							ImColor(0xFF, 0x00, 0x00, 0xFF),
+						};
+						for (int i = 0; i < 3; i++) {
+							auto cl = color_stop[i];
+							auto cr = color_stop[i + 1];
+							auto p_tl = ImVec2(sx + (ex - sx) * pos_stop[i], sy);
+							auto p_br = ImVec2(sx + (ex - sx) * pos_stop[i + 1], ey);
+							drawList->AddRectFilledMultiColor(p_tl, p_br, cl, cr, cr, cl);
+						}
+						// real mask
+						{
+							auto ps = ImVec2(sx + (ex - sx) * percent, sy);
+							auto pe = ImVec2(ex, ey);
+							drawList->AddRectFilled(ps, pe, color_black);
+						}
 					}
 					// daw rpm label
 					{
