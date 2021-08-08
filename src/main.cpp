@@ -148,11 +148,18 @@ struct display {
 			NULL 
 		};
 		::RegisterClassEx(&wc_);
+		int width = 640; int height = 200;
+		RECT rect;
+		::GetClientRect(GetDesktopWindow(), &rect);
+		int x = rect.right / 2 - width / 2;
+		int y = rect.bottom / 2 - height / 2;
 		hwnd_ = ::CreateWindow(
 			wc_.lpszClassName,
 			_T("Dirt Rally 2.0 Telemetry Display"),
-			WS_OVERLAPPEDWINDOW,
-			100, 100, 640, 240,
+			//WS_OVERLAPPEDWINDOW,
+			//(WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU),
+			(WS_POPUP),
+			x, y, width, height,
 			NULL, NULL, 
 			wc_.hInstance, NULL
 		);
@@ -248,6 +255,7 @@ struct display {
 				ImGui::Begin("Display", 0, ImGuiWindowFlags_NoDecoration);
 
 				io.WantCaptureMouse = true;
+				io.WantCaptureKeyboard = true;
 
 				auto drawList = ImGui::GetWindowDrawList();
 				auto win_x = io.DisplaySize.x; auto win_y = io.DisplaySize.y;
@@ -392,6 +400,15 @@ struct display {
 					auto throttle_br = ImVec2((1 + data_.throttle) * win_x / 2, ey);
 					drawList->AddRectFilled(throttle_tl, throttle_br, color_throttle);
 
+					// sep
+					static ImColor c_sep{ 1.f, 1.f, 1.f, 0.1f };
+					drawList->AddLine(
+						ImVec2(win_x / 2, sy),
+						ImVec2(win_x / 2, ey),
+						c_sep
+					);
+
+
 					static const char* brakes = " BRAKES ";
 					static const char* throttle = " THROTTLE ";
 					auto tsize_b = ImGui::CalcTextSize(brakes);
@@ -403,7 +420,7 @@ struct display {
 				}
 				{
 					if (io.MouseClicked[1]) {
-						//toggle_window_frame();
+						// right click
 					}
 
 					static bool drag_moving = false;
@@ -423,13 +440,6 @@ struct display {
 						auto dy = p.y - pos.y;
 						move_window(dx, dy);
 					}
-					//for (int i = 0; i < 5; i++) {
-					//	auto f = io.MouseDown[i];
-					//	if (f) {
-					//		auto s = std::to_string(i);
-					//		drawList->AddText(ImVec2(), color_white, s.c_str());
-					//	}
-					//}
 					{
 						// frame rate
 						ImGui::PushFont(font_fps);
@@ -442,6 +452,12 @@ struct display {
 						static ImColor c_fps{1.f, 1.f, 1.f, 0.4f};
 						drawList->AddText(ImVec2(win_x - tsize.x / 3 * 4, tsize.x / 3), c_fps, s.c_str());
 						ImGui::PopFont();
+					}
+
+					{
+						if (io.KeysDown[VK_ESCAPE]) {
+							abort_ = true;
+						}
 					}
 				}
 
@@ -466,16 +482,6 @@ struct display {
 			::DestroyWindow(hwnd_);
 			::UnregisterClass(wc_.lpszClassName, wc_.hInstance);
 		}
-	}
-	void toggle_window_frame() {
-		LONG lStyle = GetWindowLong(hwnd_, GWL_STYLE);
-		lStyle ^= WS_OVERLAPPEDWINDOW;
-		SetWindowLong(hwnd_, GWL_STYLE, lStyle);
-
-		//LONG lExStyle = GetWindowLong(hwnd_, GWL_EXSTYLE);
-		//lExStyle ^= (WS_EX_DLGMODALFRAME | WS_EX_CLIENTEDGE | WS_EX_STATICEDGE);
-		//SetWindowLong(hwnd_, GWL_EXSTYLE, lExStyle);
-		SetWindowPos(hwnd_, NULL, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER);
 	}
 	void move_window(float dx, float dy) {
 		RECT rect;
