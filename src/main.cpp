@@ -208,17 +208,6 @@ struct display {
 		return true;
 	}
 	void show() {
-		data_.speed = 43.4f;
-		data_.gear = 5;
-		data_.stear = -0.4;
-		data_.clutch = 0;
-		data_.brake = 0.2;
-		data_.throttle = 0.83;
-		data_.rpm = 7000.f;
-		data_.max_rpm = 7212.f;
-		data_.track_length = 16823.f;
-		data_.lap_distance = 2438.f;
-
 		auto io = ImGui::GetIO();
 
 		while (!abort_) {
@@ -431,7 +420,13 @@ struct display {
 			drawList->AddRectFilled(ptl, pbr, color_gray);
 
 			ImGui::PushFont(font_big_);
-			auto gear = std::to_string(static_cast<uint8_t>(std::floor(data_.gear)));
+			std::string gear;
+			if (data_.gear < 0)
+				gear = "R";
+			else if (data_.gear > 0)
+				gear = std::to_string(static_cast<int8_t>(std::floor(data_.gear)));
+			else
+				gear = "N";
 			auto tsize = ImGui::CalcTextSize("0");
 			auto pos = ImVec2(ptl.x + (w * p_gear - tsize.x) / 2, tl.y + (h - tsize.y) / 2);
 			drawList->AddText(pos, color_black, gear.c_str());
@@ -584,14 +579,22 @@ public:
 
 	void start() {
 		boost::system::error_code ec;
-		auto group = net::ip::make_address("239.10.9.8", ec);
-		auto local = net::ip::make_address("192.168.10.61", ec);
-		net::ip::udp::endpoint endp(local, 31000);
+		auto group = net::ip::make_address_v4("239.10.9.8", ec);
+		auto local = net::ip::make_address_v4("192.168.10.61", ec);
+		//net::ip::udp::endpoint endp(local, 31000);
+		net::ip::udp::endpoint endp(net::ip::address_v4::any(), 31000);
 
 		sock_.open(endp.protocol(), ec);
 		sock_.set_option(net::ip::udp::socket::reuse_address(true));
 		sock_.bind(endp, ec);
-		sock_.set_option(net::ip::multicast::join_group(group));
+		if (ec) {
+			std::cout << "bind " << endp.address().to_string() << " failed: " << ec.message() << std::endl;
+		}
+		sock_.non_blocking(true);
+		sock_.set_option(net::ip::multicast::join_group(group, local), ec);
+		if (ec) {
+			std::cout << "join group: " << ec.message() << std::endl;
+		}
 
 		net::spawn(ioc_.get_executor(), [this](net::yield_context yield) {
 			do_recv(yield);
@@ -605,7 +608,7 @@ public:
 		boost::system::error_code ec;
 		while (!abort_) {
 			auto size = sock_.async_receive_from(net::buffer(buf_), sender_, yield[ec]);
-			std::cout << "got data, size: " << size << std::endl;
+			//std::cout << "got data, size: " << size << std::endl;
 
 			if (ec) {
 				continue;
