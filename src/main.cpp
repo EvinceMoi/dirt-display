@@ -16,6 +16,7 @@
 #include "imgui.h"
 #include "backends/imgui_impl_win32.h"
 #include "backends/imgui_impl_dx11.h"
+#include "imgui_internal.h"
 
 #include "font.hpp"
 
@@ -134,6 +135,7 @@ struct display {
 	ImFont* font_small_;
 	ImColor color_black{ 0x00, 0x00, 0x00, 0xFF };
 	ImColor color_white{ 0xFF, 0xF0, 0xF0, 0xFF };
+	ImColor color_gray{ 0x69, 0x69, 0x69, 0xFF };
 
 	display() : abort_(false), data_{ 0.f } {}
 	bool init() {
@@ -149,7 +151,7 @@ struct display {
 			NULL 
 		};
 		::RegisterClassEx(&wc_);
-		int width = 640; int height = 200;
+		int width = 600; int height = 200;
 		RECT rect;
 		::GetClientRect(GetDesktopWindow(), &rect);
 		int x = rect.right / 2 - width / 2;
@@ -329,17 +331,15 @@ struct display {
 				ImVec2(tl.x + w * label_len, tl.y + h),
 				color_green
 			);
-			// draw RPM text
 			static const char* label = "RPM";
 			auto tsize = ImGui::CalcTextSize(label);
 			auto pos = ImVec2(tl.x + (w * label_len - tsize.x) / 2, tl.y + (h - tsize.y) / 2); // center
-			//auto pos = ImVec2(tl.x + tsize.x / 3, tl.y + (h - tsize.y) / 2); // left
 			drawList->AddText(pos, color_black, label);
 
 		}
 		// draw bar
 		{
-			// mask
+			// gradient backgroud
 			auto sx = tl.x + w * label_len;
 			auto ex = br.x;
 			std::array<float, 4> pos_stop = { 0.f, 0.4f, 0.64f, 1.f };
@@ -356,7 +356,7 @@ struct display {
 				auto p_br = ImVec2(sx + (ex - sx) * pos_stop[i + 1], br.y);
 				drawList->AddRectFilledMultiColor(p_tl, p_br, cl, cr, cr, cl);
 			}
-			// real mask
+			// mask
 			{
 				auto ps = ImVec2(sx + (ex - sx) * p, tl.y);
 				auto pe = ImVec2(ex, br.y);
@@ -364,7 +364,7 @@ struct display {
 			}
 		}
 
-		// draw step
+		// draw marker
 		{
 			auto tsize = ImGui::CalcTextSize("0");
 			for (auto i = 0; i < max_rpm_step; i++) {
@@ -384,7 +384,8 @@ struct display {
 		auto h = br.y - tl.y;
 
 		// background
-		drawList->AddRectFilled(tl, br, color_white);
+		auto color_background = color_white;
+		drawList->AddRectFilled(tl, br, color_background);
 
 		auto p_speed = 0.3;
 		auto p_kmh = 0.3;
@@ -406,7 +407,7 @@ struct display {
 
 		// draw km/h
 		{
-			static const char* kmh = "KM/H";
+			static const char* kmh = "km/h";
 			auto tsize = ImGui::CalcTextSize(kmh);
 			auto pos = ImVec2(tl.x + w * p_speed + w * p_kmh * 0.2, tl.y + h / 2);
 			drawList->AddText(pos, color_black, kmh);
@@ -416,8 +417,11 @@ struct display {
 		{
 			auto ptl = ImVec2(tl.x + w * (p_speed + p_kmh), tl.y);
 			auto pbr = ImVec2(tl.x + w * (p_speed + p_kmh + p_gear), tl.y + h);
-			auto color_gray = ImColor(0x69, 0x69, 0x69, 0xFF);
 			drawList->AddRectFilled(ptl, pbr, color_gray);
+			static auto color_dec = ImColor(0xD9, 0x25, 0x25, 0xA0);
+			auto border_thickness = 4.f;
+			drawList->AddRectFilled(ptl, ImVec2(ptl.x + border_thickness, pbr.y), color_dec);
+			drawList->AddRectFilled(ImVec2(pbr.x - border_thickness, ptl.y), pbr, color_dec);
 
 			ImGui::PushFont(font_big_);
 			std::string gear;
@@ -431,6 +435,35 @@ struct display {
 			auto pos = ImVec2(ptl.x + (w * p_gear - tsize.x) / 2, tl.y + (h - tsize.y) / 2);
 			drawList->AddText(pos, color_black, gear.c_str());
 			ImGui::PopFont();
+		}
+
+		// draw handbrake
+		{
+			auto ptl = ImVec2(tl.x + w * (p_speed + p_kmh + p_gear), tl.y);
+			auto pbr = ImVec2(tl.x + w, tl.y + h);
+			auto pcenter = ImVec2(ptl.x + (pbr.x - ptl.x) / 2, ptl.y + (pbr.y - ptl.y) / 2);
+			auto radius = std::min(pbr.x - ptl.x, pbr.y - ptl.y) * 0.23;
+
+			bool on = false;
+			auto color = on ? ImColor(0xE0, 0x16, 0x16, 0xFF) : color_gray;
+			
+			auto thickness = 6.f;
+			auto num_segment = 36;
+			drawList->AddCircle(pcenter, radius, color, num_segment, thickness - 1);
+			drawList->PathArcTo(pcenter, radius * 1.3, - IM_PI / 4, IM_PI / 4, num_segment);
+			drawList->PathStroke(color, 0, thickness);
+			drawList->PathArcTo(pcenter, radius * 1.3, IM_PI / 4 * 3, IM_PI / 4 * 5, num_segment);
+			drawList->PathStroke(color, 0, thickness);
+
+			// `!`
+			auto mtl = ImVec2(pcenter.x - thickness / 2, pcenter.y - radius * 0.55);
+			auto mbr = ImVec2(pcenter.x + thickness / 2, pcenter.y + radius * 0.55);
+			drawList->AddRectFilled(mtl, mbr, color);
+			drawList->AddRectFilled(
+				ImVec2(mtl.x, mbr.y - thickness - thickness / 3),
+				ImVec2(mbr.x, mbr.y - thickness),
+				color_background
+			);
 		}
 	}
 	void draw_section_input(ImVec2 tl, ImVec2 br) {
