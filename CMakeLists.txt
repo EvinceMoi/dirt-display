@@ -7,19 +7,20 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(Boost_USE_STATIC_LIBS ON)
 set(Boost_USE_STATIC_RUNTIME ON)
-#set(Boost_NO_BOOST_CMAKE ON)
 find_package(Boost 1.76 REQUIRED COMPONENTS program_options context coroutine filesystem date_time)
 
-if(MSVC)
-    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-	add_definitions(
-		-D_WIN32_WINNT=0x0601
-		-DWIN32_LEAN_AND_MEAN
-		-DNOMINMAX
-		-DUNICODE
-		-D_UNICODE
-		-D_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS
-	)
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+add_compile_definitions(
+	_WIN32_WINNT=0x0601
+	WIN32_LEAN_AND_MEAN
+	NOMINMAX
+	UNICODE
+	_UNICODE
+	_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS
+)
+
+if(ENABLE_MULTICAST)
+	add_compile_definitions(ENABLE_MULTICAST)
 endif()
 
 
@@ -28,7 +29,6 @@ add_executable(dirt-display src/main.cpp
 	deps/imgui/imgui_widgets.cpp
 	deps/imgui/imgui_tables.cpp
 	deps/imgui/imgui_draw.cpp
-	deps/imgui/imgui_demo.cpp
 	deps/imgui/backends/imgui_impl_win32.cpp
 	deps/imgui/backends/imgui_impl_dx11.cpp
 )

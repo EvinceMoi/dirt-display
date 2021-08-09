@@ -573,15 +573,43 @@ enum class offset_t : uint16_t {
 	GEAR = 132, // 0: neutral, 1, 2, ... 10 = Reverse
 	GFORCE_LATERAL = 136,
 	GFORCE_LONGITUDINAL = 140,
-	CURRENT_LAP = 144, // rx only
+	CURRENT_LAP = 144, // RX only
 	ENGINE_RATE = 148, // [rpm/10]
+
+	UNKNOWN_152 = 152,
+	UNKNOWN_156 = 156,
+	UNKNOWN_160 = 160,
+	UNKNOWN_164 = 164,
+	UNKNOWN_168 = 168,
+	UNKNOWN_172 = 172,
+	UNKNOWN_176 = 176,
+	UNKNOWN_180 = 180,
+	UNKNOWN_184 = 184,
+	UNKNOWN_188 = 188,
+	UNKNOWN_192 = 192,
+	UNKNOWN_196 = 196,
+	UNKNOWN_200 = 200,
+
 	TEMPERATURE_BRAKE_RL = 204,
 	TEMPERATURE_BRAKE_RR = 208,
 	TEMPERATURE_BRAKE_FL = 212,
 	TEMPERATURE_BRAKE_FR = 216,
-	TOTAL_LAPS = 240, // rx only, rally = 1
+
+	UNKNOWN_220 = 220,
+	UNKNOWN_224 = 224,
+	UNKNOWN_228 = 228,
+	UNKNOWN_232 = 232,
+	UNKNOWN_236 = 236,
+
+	TOTAL_LAPS = 240, // RX only, rally = 1
 	TRACK_LENGTH = 244,
-	MAX_RPM = 252 // maximum rpm / 10
+
+	UNKNOWN_248 = 248,
+
+	MAX_RPM = 252, // maximum rpm / 10
+
+	UNKNOWN_256 = 256,
+	UNKNOWN_260 = 260 // data length: 264
 };
 
 template <typename E>
@@ -597,12 +625,12 @@ struct listener {
 	bool abort_;
 
 	net::ip::udp::endpoint sender_;
-	std::array<uint8_t, 576> buf_;
+	std::array<uint8_t, 576> buf_{};
 
 	using sig_telemetry_t = boost::signals2::signal<void(const telemetry_data_t&)>;
 	sig_telemetry_t sig_telemetry;
 public:
-	listener(net::io_context& ioc)
+	explicit listener(net::io_context& ioc)
 		: ioc_(ioc)
 		, sock_(ioc)
 		, abort_(false)
@@ -612,9 +640,11 @@ public:
 
 	void start() {
 		boost::system::error_code ec;
+#ifdef ENABLE_MULTICAST
 		auto group = net::ip::make_address_v4("239.10.9.8", ec);
-		auto local = net::ip::make_address_v4("192.168.10.61", ec);
-		//net::ip::udp::endpoint endp(local, 31000);
+		//auto local = net::ip::make_address_v4("192.168.10.61", ec);
+		auto local = net::ip::make_address_v4("192.168.40.137", ec);
+#endif
 		net::ip::udp::endpoint endp(net::ip::address_v4::any(), 31000);
 
 		sock_.open(endp.protocol(), ec);
@@ -624,10 +654,12 @@ public:
 			std::cout << "bind " << endp.address().to_string() << " failed: " << ec.message() << std::endl;
 		}
 		sock_.non_blocking(true);
+#ifdef ENABLE_MULTICAST
 		sock_.set_option(net::ip::multicast::join_group(group, local), ec);
 		if (ec) {
 			std::cout << "join group: " << ec.message() << std::endl;
 		}
+#endif
 
 		net::spawn(ioc_.get_executor(), [this](net::yield_context yield) {
 			do_recv(yield);
@@ -641,7 +673,6 @@ public:
 		boost::system::error_code ec;
 		while (!abort_) {
 			auto size = sock_.async_receive_from(net::buffer(buf_), sender_, yield[ec]);
-			//std::cout << "got data, size: " << size << std::endl;
 
 			if (ec) {
 				continue;
@@ -683,7 +714,6 @@ int main(int argc, char* argv[]) {
 	display ui;
 
 	l.sig_telemetry.connect([&](const telemetry_data_t& d) {
-		//std::cout << "update speed: " << d.speed << std::endl;
 		ui.update(d);
 	});
 
