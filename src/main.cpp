@@ -1,8 +1,11 @@
 #include <iostream>
+
 #include <boost/asio.hpp>
 #include <boost/asio/spawn.hpp>
 #include <boost/endian.hpp>
 #include <boost/signals2.hpp>
+
+#include <boost/program_options.hpp>
 
 #include <d3d11.h>
 #include <tchar.h>
@@ -617,6 +620,12 @@ constexpr auto to_underlying(E e) noexcept {
 	return static_cast<std::underlying_type_t<E>>(e);
 }
 
+std::string uint8_to_hex(uint8_t it) {
+	std::stringstream ss;
+	ss << std::setfill('0') << std::setw(2) << std::hex << it;
+	return ss.str();
+}
+
 namespace net = boost::asio;
 
 struct listener {
@@ -629,7 +638,14 @@ struct listener {
 
 	using sig_telemetry_t = boost::signals2::signal<void(const telemetry_data_t&)>;
 	sig_telemetry_t sig_telemetry;
+
+#ifdef ENABLE_MULTICAST
+	std::string relay_host_;
+	uint16_t relay_port_;
+#endif
+
 public:
+#ifndef ENABLE_MULTICAST
 	explicit listener(net::io_context& ioc)
 		: ioc_(ioc)
 		, sock_(ioc)
@@ -637,16 +653,27 @@ public:
 	{
 
 	}
+#else
+	listener(net::io_context& ioc, const std::string& relay_host, uint16_t relay_port)
+		: ioc_(ioc)
+		, sock_(ioc)
+		, abort_(false)
+		, relay_host_(relay_host)
+		, relay_port_(relay_port)
+	{
+
+	}
+#endif 
+
+
 
 	void start() {
 		boost::system::error_code ec;
-#ifdef ENABLE_MULTICAST
-		auto group = net::ip::make_address_v4("239.10.9.8", ec);
-		//auto local = net::ip::make_address_v4("192.168.10.61", ec);
-		auto local = net::ip::make_address_v4("192.168.40.137", ec);
-#endif
+#ifndef ENABLE_MULTICAST
 		net::ip::udp::endpoint endp(net::ip::address_v4::any(), 31000);
-
+#else
+		net::ip::udp::endpoint endp(net::ip::address_v4::any(), relay_port_);
+#endif
 		sock_.open(endp.protocol(), ec);
 		sock_.set_option(net::ip::udp::socket::reuse_address(true));
 		sock_.bind(endp, ec);
@@ -654,16 +681,21 @@ public:
 			std::cout << "bind " << endp.address().to_string() << " failed: " << ec.message() << std::endl;
 		}
 		sock_.non_blocking(true);
-#ifdef ENABLE_MULTICAST
-		sock_.set_option(net::ip::multicast::join_group(group, local), ec);
-		if (ec) {
-			std::cout << "join group: " << ec.message() << std::endl;
-		}
-#endif
-
 		net::spawn(ioc_.get_executor(), [this](net::yield_context yield) {
 			do_recv(yield);
 		});
+#ifdef ENABLE_MULTICAST
+		// send sub sync byte
+		net::ip::udp::endpoint relay(net::ip::make_address(relay_host_, ec), relay_port_);
+		buf_[0] = 0x2A;
+		sock_.async_send_to(net::buffer(buf_, 1), relay, [](const boost::system::error_code& ec, std::size_t bytes) {
+			if (ec) {
+				std::cout << "sub error: " << ec.message() << std::endl;
+				return;
+			}
+			std::cout << "sub request sent" << std::endl;
+		});
+#endif
 	}
 	void stop() {
 		abort_ = true;
@@ -673,11 +705,63 @@ public:
 		boost::system::error_code ec;
 		while (!abort_) {
 			auto size = sock_.async_receive_from(net::buffer(buf_), sender_, yield[ec]);
-
 			if (ec) {
 				continue;
 			}
+#ifndef ENABLE_MULTICAST
 			if (size != 264) continue;
+#else
+			auto sender_addr = sender_.address().to_string();
+			if (sender_addr != relay_host_) continue;
+
+			if (size != 264) {
+				if (size != 10) continue; // server send 10 octets for ipv4
+				
+				std::string group;
+				std::string local;
+				
+				int pos = 0;
+				auto gaddrlen = buf_[pos++];
+				if (gaddrlen != 4) continue; // invalid len
+				
+				for (int i = 0; i < gaddrlen; i++) {
+					group += std::to_string(buf_[pos]);
+					if (i < (gaddrlen - 1)) group += ".";
+					pos++;
+				}
+
+				auto laddrlen = buf_[pos++];
+				if (laddrlen != 4) continue; // invalid len
+
+				for (int i = 0; i < laddrlen; i++) {
+					local += std::to_string(buf_[pos]);
+					if (i < (laddrlen - 1)) local += ".";
+					pos++;
+				}
+
+				auto group_addr = net::ip::make_address_v4(group, ec);
+				if (ec) {
+					std::cout << "parse group address error: " << ec.message() << std::endl;
+					return;
+				}
+				auto local_addr = net::ip::make_address_v4(local, ec);
+				if (ec) {
+					std::cout << "parse local address error: " << ec.message() << std::endl;
+					return;
+				}
+
+				sock_.set_option(net::ip::multicast::join_group(group_addr, local_addr), ec);
+				if (ec) {
+					std::cout << "join group: " << ec.message() << std::endl;
+				}
+
+				continue;
+			}
+			else {
+				std::cout << "sender: " << sender_.address().to_string() << std::endl;
+			}
+#endif
+			
 
 			telemetry_data_t data;
 			data.speed        = unpack(offset_t::SPEED);
@@ -704,11 +788,29 @@ public:
 
 int main(int argc, char* argv[]) {
 
-	ShowConsole(false);
+	ShowConsole(true);
 
 	net::io_context ioc;
 
+#ifdef ENABLE_MULTICAST
+	namespace po = boost::program_options;
+
+	std::string relay_host;
+	uint16_t relay_port;
+
+	po::options_description opts("options");
+	opts.add_options()
+		("host,h", po::value<std::string>(&relay_host)->default_value("127.0.0.1"), "relay server host")
+		("port,p", po::value<uint16_t>(&relay_port)->default_value(31000), "relay server port")
+		;
+	po::variables_map vm;
+	po::store(po::parse_command_line(argc, argv, opts), vm);
+	po::notify(vm);
+
+	listener l(ioc, relay_host, relay_port);
+#else
 	listener l(ioc);
+#endif
 	l.start();
 
 	display ui;
