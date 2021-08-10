@@ -579,40 +579,41 @@ enum class offset_t : uint16_t {
 	CURRENT_LAP = 144, // RX only
 	ENGINE_RATE = 148, // [rpm/10]
 
-	UNKNOWN_152 = 152,
-	UNKNOWN_156 = 156,
-	UNKNOWN_160 = 160,
-	UNKNOWN_164 = 164,
-	UNKNOWN_168 = 168,
-	UNKNOWN_172 = 172,
-	UNKNOWN_176 = 176,
-	UNKNOWN_180 = 180,
-	UNKNOWN_184 = 184,
-	UNKNOWN_188 = 188,
-	UNKNOWN_192 = 192,
-	UNKNOWN_196 = 196,
-	UNKNOWN_200 = 200,
+	NATIVE_SLI_SUPPORT = 152,
+	RACE_POSITION = 156,
+	KERS_LEVEL = 160,
+	KERS_LEVEL_MAX = 164,
+	DRS = 168,
+	TRACTION_CONTROL = 172,
+	ABS = 176,
+	FUEL_IN_TANK = 180,
+	FUEL_CAPACITY = 184,
+	IN_PITS = 188,
+	RACE_SECTOR = 192,
+	SECTION_TIME_1 = 196,
+	SECTION_TIME_2 = 200,
 
 	TEMPERATURE_BRAKE_RL = 204,
 	TEMPERATURE_BRAKE_RR = 208,
 	TEMPERATURE_BRAKE_FL = 212,
 	TEMPERATURE_BRAKE_FR = 216,
 
-	UNKNOWN_220 = 220,
-	UNKNOWN_224 = 224,
-	UNKNOWN_228 = 228,
-	UNKNOWN_232 = 232,
-	UNKNOWN_236 = 236,
+	TYRE_PRESSURE_RL = 220,
+	TYRE_PRESSURE_RR = 224,
+	TYRE_PRESSURE_FL = 228,
+	TYRE_PRESSURE_FR = 232,
+
+	LAPS_COMPLETED = 236,
 
 	TOTAL_LAPS = 240, // RX only, rally = 1
 	TRACK_LENGTH = 244,
 
-	UNKNOWN_248 = 248,
+	LAST_LAP_TIME = 248,
 
 	MAX_RPM = 252, // maximum rpm / 10
 
-	UNKNOWN_256 = 256,
-	UNKNOWN_260 = 260 // data length: 264
+	IDLE_RPM = 256,
+	MAX_GEAR = 260 // data length: 264
 };
 
 template <typename E>
@@ -640,7 +641,7 @@ struct listener {
 	sig_telemetry_t sig_telemetry;
 
 #ifdef ENABLE_MULTICAST
-	std::string relay_host_;
+	net::ip::address relay_host_;
 	uint16_t relay_port_;
 #endif
 
@@ -654,7 +655,7 @@ public:
 
 	}
 #else
-	listener(net::io_context& ioc, const std::string& relay_host, uint16_t relay_port)
+	listener(net::io_context& ioc, const net::ip::address& relay_host, uint16_t relay_port)
 		: ioc_(ioc)
 		, sock_(ioc)
 		, abort_(false)
@@ -663,6 +664,14 @@ public:
 	{
 
 	}
+
+	void rebind_and_join(bool v4, uint16_t port, net::ip::address group) {
+		boost::system::error_code ec;
+		if (sock_.is_open()) {
+			sock_.close(ec);
+		}
+	}
+
 #endif 
 
 
@@ -672,7 +681,14 @@ public:
 #ifndef ENABLE_MULTICAST
 		net::ip::udp::endpoint endp(net::ip::address_v4::any(), 31000);
 #else
-		net::ip::udp::endpoint endp(net::ip::address_v4::any(), relay_port_);
+		net::ip::udp::endpoint endp;
+		if (relay_host_.is_v4()) {
+			endp = { net::ip::address_v4::any(), relay_port_ };
+		} else {
+			endp = { net::ip::address_v6::any(), relay_port_ };
+		}
+
+		(net::ip::address_v4::any(), relay_port_);
 #endif
 		sock_.open(endp.protocol(), ec);
 		sock_.set_option(net::ip::udp::socket::reuse_address(true));
@@ -686,7 +702,7 @@ public:
 		});
 #ifdef ENABLE_MULTICAST
 		// send sub sync byte
-		net::ip::udp::endpoint relay(net::ip::make_address(relay_host_, ec), relay_port_);
+		net::ip::udp::endpoint relay(relay_host_, relay_port_);
 		buf_[0] = 0x2A;
 		sock_.async_send_to(net::buffer(buf_, 1), relay, [](const boost::system::error_code& ec, std::size_t bytes) {
 			if (ec) {
@@ -711,54 +727,52 @@ public:
 #ifndef ENABLE_MULTICAST
 			if (size != 264) continue;
 #else
-			auto sender_addr = sender_.address().to_string();
-			if (sender_addr != relay_host_) continue;
+
+			if (sender_.address() != relay_host_) continue;
 
 			if (size != 264) {
-				if (size != 10) continue; // server send 10 octets for ipv4
+				if (size < 10) continue;
 				
 				std::string group;
 				std::string local;
-				
+
 				int pos = 0;
 				auto gaddrlen = buf_[pos++];
-				if (gaddrlen != 4) continue; // invalid len
+				if (gaddrlen != 4 && gaddrlen != 16) continue; // invalid len
+
+				auto parse_ip = [this](int pos, uint8_t size) -> net::ip::address {
+					if (size == 4) {
+						net::ip::address_v4::bytes_type abuf;
+						std::copy(std::begin(buf_) + pos, std::begin(buf_) + pos + size, std::begin(abuf));
+						return net::ip::make_address_v4(abuf);
+					} else {
+						net::ip::address_v6::bytes_type abuf;
+						std::copy(std::begin(buf_) + pos, std::begin(buf_) + pos + size, std::begin(abuf));
+						return net::ip::make_address_v6(abuf);
+					}
+				};
+
+				auto group_addr = parse_ip(pos, gaddrlen);
+				pos += gaddrlen;
 				
-				for (int i = 0; i < gaddrlen; i++) {
-					group += std::to_string(buf_[pos]);
-					if (i < (gaddrlen - 1)) group += ".";
-					pos++;
-				}
-
 				auto laddrlen = buf_[pos++];
-				if (laddrlen != 4) continue; // invalid len
+				if (laddrlen != 4 && laddrlen != 16) continue; // invalid len
 
-				for (int i = 0; i < laddrlen; i++) {
-					local += std::to_string(buf_[pos]);
-					if (i < (laddrlen - 1)) local += ".";
-					pos++;
-				}
+				auto local_addr = parse_ip(pos, laddrlen);
 
-				auto group_addr = net::ip::make_address_v4(group, ec);
-				if (ec) {
-					std::cout << "parse group address error: " << ec.message() << std::endl;
-					return;
-				}
-				auto local_addr = net::ip::make_address_v4(local, ec);
-				if (ec) {
-					std::cout << "parse local address error: " << ec.message() << std::endl;
-					return;
-				}
+				std::cout << "g:" << group_addr.to_string() << ", l:" << local_addr.to_string() << std::endl;
 
-				sock_.set_option(net::ip::multicast::join_group(group_addr, local_addr), ec);
+				auto sock_addr = sock_.local_endpoint(ec).address();
+				if (group_addr.is_v4()) {
+					sock_.set_option(net::ip::multicast::join_group(group_addr.to_v4(), local_addr.to_v4()), ec);
+				} else {
+					sock_.set_option(net::ip::multicast::join_group(group_addr.to_v6(), 0), ec);
+				}
 				if (ec) {
 					std::cout << "join group: " << ec.message() << std::endl;
 				}
 
 				continue;
-			}
-			else {
-				std::cout << "sender: " << sender_.address().to_string() << std::endl;
 			}
 #endif
 			
@@ -807,7 +821,14 @@ int main(int argc, char* argv[]) {
 	po::store(po::parse_command_line(argc, argv, opts), vm);
 	po::notify(vm);
 
-	listener l(ioc, relay_host, relay_port);
+	boost::system::error_code ec;
+	auto rh = net::ip::make_address(relay_host, ec);
+	if (ec) {
+		std::cout << "failed to parse relay host: " << ec.message() << std::endl;
+		exit(EXIT_FAILURE);
+	}
+
+	listener l(ioc, rh, relay_port);
 #else
 	listener l(ioc);
 #endif
