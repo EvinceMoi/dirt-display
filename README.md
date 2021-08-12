@@ -23,4 +23,4 @@ It cant display basic informations using the game's UDP data(mode 3), suck as:
 ### Build
 Simple CMake project, should be easy.
 
-The switch ```ENABLE_MULTICAST``` can be set to cooperate with a simple UDP data relay, see 
+The switch ```ENABLE_MULTICAST``` can be set to cooperate with a simple UDP data relay, see another project **dirt-relay**
