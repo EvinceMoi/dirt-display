@@ -23,14 +23,32 @@ if(ENABLE_MULTICAST)
 	add_compile_definitions(ENABLE_MULTICAST)
 endif()
 
-
-add_executable(dirt-display src/main.cpp
-	deps/imgui/imgui.cpp
-	deps/imgui/imgui_widgets.cpp
-	deps/imgui/imgui_tables.cpp
-	deps/imgui/imgui_draw.cpp
+file(GLOB DD_HEADERS
+	src/*.hpp
+)
+file(GLOB IMGUI_HEADERS
+	deps/imgui/*.h
+	deps/imgui/backends/imgui_impl_win32.h
+	deps/imgui/backends/imgui_impl_dx11.h
+)
+file(GLOB DD_SOURCES
+	src/*.cpp
+)
+file(GLOB IMGUI_SOURCES
+	deps/imgui/*.cpp
 	deps/imgui/backends/imgui_impl_win32.cpp
 	deps/imgui/backends/imgui_impl_dx11.cpp
+)
+
+source_group("Header Files" FILES ${DD_HEADERS})
+source_group("Header Files/imgui" FILES ${IMGUI_HEADERS})
+source_group("Source Files/imgui" FILES ${IMGUI_SOURCES})
+
+add_executable(dirt-display 
+	${DD_SOURCES} 
+	${IMGUI_SOURCES}
+	${DD_HEADERS}
+	${IMGUI_HEADERS}
 )
 target_include_directories(dirt-display PUBLIC src ${Boost_INCLUDE_DIRS} deps/imgui)
 target_link_libraries(dirt-display 
