@@ -34,6 +34,7 @@ struct telemetry_data_t {
 	float max_rpm;
 	float track_length;
 	float lap_distance;
+	float handbrake;
 };
 
 // Data
@@ -139,8 +140,9 @@ struct display {
 	ImColor color_black{ 0x00, 0x00, 0x00, 0xFF };
 	ImColor color_white{ 0xFF, 0xF0, 0xF0, 0xFF };
 	ImColor color_gray{ 0x69, 0x69, 0x69, 0xFF };
+	bool draw_fps_;
 
-	display() : abort_(false), data_{ 0.f } {}
+	display() : abort_(false), data_{0}, draw_fps_(false) {}
 	bool init() {
 		abort_ = false;
 		wc_ = { 
@@ -253,7 +255,8 @@ struct display {
 				// Input(Brake/Throttle)
 				draw_section_input(ImVec2(0, win_y * 0.8), ImVec2(win_x, win_y));
 				// fps
-				draw_fps(ImVec2(), ImVec2(win_x, win_y));
+				if (draw_fps_)
+					draw_fps(ImVec2(), ImVec2(win_x, win_y));
 
 				ImGui::End();
 				ImGui::PopStyleVar();
@@ -283,6 +286,7 @@ struct display {
 
 		if (io.MouseClicked[1]) {
 			// right click
+			draw_fps_ = !draw_fps_;
 		}
 
 		{
@@ -342,7 +346,7 @@ struct display {
 		}
 		// draw bar
 		{
-			// gradient backgroud
+			// gradient background
 			auto sx = tl.x + w * label_len;
 			auto ex = br.x;
 			std::array<float, 4> pos_stop = { 0.f, 0.4f, 0.64f, 1.f };
@@ -447,7 +451,7 @@ struct display {
 			auto pcenter = ImVec2(ptl.x + (pbr.x - ptl.x) / 2, ptl.y + (pbr.y - ptl.y) / 2);
 			auto radius = std::min(pbr.x - ptl.x, pbr.y - ptl.y) * 0.23;
 
-			bool on = false;
+			bool on = data_.handbrake > 0.f;
 			auto color = on ? ImColor(0xE0, 0x16, 0x16, 0xFF) : color_gray;
 			
 			auto thickness = 6.f;
@@ -518,7 +522,7 @@ struct display {
 			s = std::string(2, ' ') + s;
 		}
 		auto tsize = ImGui::CalcTextSize(s.c_str());
-		static ImColor c_fps{ 1.f, 1.f, 1.f, 0.1f };
+		static ImColor c_fps{ 1.f, 1.f, 1.f, 0.8f };
 		drawList->AddText(ImVec2(tl.x + w - tsize.x / 3 * 4, tsize.x / 3), c_fps, s.c_str());
 		ImGui::PopFont();
 	}
@@ -538,37 +542,50 @@ struct display {
 	}
 };
 
-
+// UDP mode 3
 enum class offset_t : uint16_t {
 	TIME_TOTAL = 0,
 	TIME_LAP = 4,
+	
 	DISTANCE_LAP = 8, // meters
 	DISTANCE_TOTAL = 12,
+	
 	POSITION_X = 16,
 	POSITION_Y = 20,
 	POSITION_Z = 24,
-	SPEED = 28, // [m/s]
+	
+	SPEED = 28, // the magnitude of the vehicles linear velocity, in [m/s]
+	
 	VELOCITY_X = 32,
 	VELOCITY_Y = 36,
 	VELOCITY_Z = 40,
+	
 	ROLL_VECTOR_X = 44,
 	ROLL_VECTOR_Y = 48,
 	ROLL_VECTOR_Z = 52,
+	
 	PITCH_VECTOR_X = 56,
 	PITCH_VECTOR_Y = 60,
 	PITCH_VECTOR_Z = 64,
+	
+	// the vertical position of the wheel from rest(in car space), measured in meters
 	SUSPENSION_POSITION_RL = 68,
 	SUSPENSION_POSITION_RR = 72,
 	SUSPENSION_POSITION_FL = 76,
 	SUSPENSION_POSITION_FR = 80,
+
+	// the vertical acceleration of the wheel from rest(in car space), measured in m/s^2
 	SUSPENSION_VELOCITY_RL = 84,
 	SUSPENSION_VELOCITY_RR = 88,
 	SUSPENSION_VELOCITY_FL = 92,
 	SUSPENSION_VELOCITY_FR = 96,
+
+	// the speed of the contact patch of the wheel, in m/s
 	WHEEL_PATCH_SPEED_RL = 100,
 	WHEEL_PATCH_SPEED_RR = 104,
 	WHEEL_PATCH_SPEED_FL = 108,
 	WHEEL_PATCH_SPEED_FR = 112,
+
 	INPUT_THROTTLE = 116,
 	INPUT_STEER = 120,
 	INPUT_BRAKE = 124,
@@ -589,7 +606,7 @@ enum class offset_t : uint16_t {
 	FUEL_IN_TANK = 180,
 	FUEL_CAPACITY = 184,
 	IN_PITS = 188,
-	RACE_SECTOR = 192,
+	RACE_SECTOR = 192, // the number of splits in the lap
 	SECTION_TIME_1 = 196,
 	SECTION_TIME_2 = 200,
 
@@ -613,7 +630,7 @@ enum class offset_t : uint16_t {
 	MAX_RPM = 252, // maximum rpm / 10
 
 	IDLE_RPM = 256,
-	MAX_GEAR = 260 // data length: 264
+	MAX_GEARS = 260 // data length: 264
 };
 
 template <typename E>
@@ -665,13 +682,6 @@ public:
 
 	}
 
-	void rebind_and_join(bool v4, uint16_t port, net::ip::address group) {
-		boost::system::error_code ec;
-		if (sock_.is_open()) {
-			sock_.close(ec);
-		}
-	}
-
 #endif 
 
 
@@ -719,6 +729,15 @@ public:
 
 	void do_recv(net::yield_context yield) {
 		boost::system::error_code ec;
+
+		auto timestamp = []() {
+			using namespace std::chrono;
+			return duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
+		};
+
+		auto ts = timestamp();
+		float pt = 0.f;
+		auto on_stage_start = true;
 		while (!abort_) {
 			auto size = sock_.async_receive_from(net::buffer(buf_), sender_, yield[ec]);
 			if (ec) {
@@ -775,7 +794,17 @@ public:
 				continue;
 			}
 #endif
-			
+		
+			auto now = timestamp();
+			if (on_stage_start = false && (now - ts) > 15) {
+				on_stage_start = true;
+			} else {
+				on_stage_start = false;
+				ts = now;
+			}
+
+			auto ct = unpack(offset_t::TIME_TOTAL);
+			pt = ct;
 
 			telemetry_data_t data;
 			data.speed        = unpack(offset_t::SPEED);
@@ -788,12 +817,99 @@ public:
 			data.max_rpm      = unpack(offset_t::MAX_RPM) * 10;
 			data.track_length = unpack(offset_t::TRACK_LENGTH);
 			data.lap_distance = unpack(offset_t::DISTANCE_LAP);
+
+			{
+				static float last_brake_time = -1;
+				static float last_handlebrake_time = -1;
+				static float last_rw_lock_time = -1;
+				if (on_stage_start) {
+					last_brake_time = last_handlebrake_time = last_rw_lock_time = -1;
+				}
+
+				if (data.brake == 0) {
+					last_brake_time = -1;
+				} else {
+					// record the first time brake is on
+					if (last_brake_time < 0)
+						last_brake_time = pt;
+				}
+
+				//static auto handbrake_on = false;
+
+				// handbrake
+				auto wps_fl = unpack(offset_t::WHEEL_PATCH_SPEED_FL);
+				auto wps_fr = unpack(offset_t::WHEEL_PATCH_SPEED_FR);
+				auto wps_rl = unpack(offset_t::WHEEL_PATCH_SPEED_RL);
+				auto wps_rr = unpack(offset_t::WHEEL_PATCH_SPEED_RR);
+
+				auto avg_f = (std::fabs(wps_fl) + std::fabs(wps_fr)) / 2;
+				auto avg_r = (std::fabs(wps_rl) + std::fabs(wps_rr)) / 2;
+
+				auto speed_min = 0.01; // 1.f / 3.6;
+				auto handbrake_on = false;
+
+				if (data.speed > speed_min) { // car stopped with gear greater than 0 still got very small speed input
+					auto fw_locked = avg_f == 0;
+					auto rw_locked = avg_r == 0;
+					if (rw_locked) { // rear locked
+						auto first_rw_lock = false;
+						if (last_rw_lock_time < 0) {
+							last_rw_lock_time = pt; // record the time point of the first rear locked
+							first_rw_lock = true;
+						}
+
+						if (first_rw_lock) {
+							//handbrake_on = !fw_locked;
+							if (fw_locked) { // brake caused lock
+								handbrake_on = false;
+							} else {
+								handbrake_on = true;
+							}
+						} else {
+							if (pt > last_rw_lock_time && last_rw_lock_time > 0) { // already locked before
+								if (!fw_locked) handbrake_on = true;
+								else { // front locked
+									// brake on
+									if (last_brake_time > 0) {
+										if (last_rw_lock_time < last_brake_time)
+											handbrake_on = true;
+										else {
+											// rear wheel lock after brake
+											// 1. brake caused lock
+											// 2. handbrake while braking
+											// cannot be detected only from wheel lock, temporarily set to false
+											// FIXME handbrake_on = false ?
+										}
+									} else {
+										handbrake_on = true;
+									}
+								}
+							}
+						}
+					} else {
+						handbrake_on = false;
+						last_rw_lock_time = -1;
+					}
+
+				} else { // considered still
+					handbrake_on = true;
+				}
+
+				data.handbrake = handbrake_on ? 1.f : 0.f;
+				if (!handbrake_on) {
+					last_handlebrake_time = -1.f;
+				} else {
+					if (last_handlebrake_time < 0)
+						last_handlebrake_time = pt;
+				}
+			}
 			
 			sig_telemetry(data);
 		}
 	}
 
 	float unpack(offset_t offset) {
+		// data use little endian
 		float data;
 		std::memcpy(&data, buf_.data() + to_underlying(offset), 4);
 		return data;
@@ -802,7 +918,7 @@ public:
 
 int main(int argc, char* argv[]) {
 
-	ShowConsole(true);
+	ShowConsole(false);
 
 	net::io_context ioc;
 
