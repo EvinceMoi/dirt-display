@@ -375,6 +375,7 @@ struct display {
 		{
 			auto tsize = ImGui::CalcTextSize("0");
 			for (auto i = 0; i < max_rpm_step; i++) {
+				if (max_rpm_step >= 12 && i % 2 == 0) continue;
 				if ((i + 1) == max_rpm_step) break;
 				auto p = (i + 1) * 1.f / max_rpm_step;
 				auto x = tl.x + w * label_len + w * (1 - label_len) * p - 1 * tsize.x;
