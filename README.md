@@ -5,7 +5,7 @@ A simple Dirt Rally 2.0 telemetry display tool, use the style from WRC tv overla
 ![ui](misc/screenshot.png)
 
 # Intro
-It cant display basic informations using the game's UDP data(mode 3), suck as:
+It cant display basic informations using the game's UDP data(mode 3), such as:
 
 - RPM
 - Speed (provided by UDP data, which I think is more accurate than the speed display in game)
