@@ -156,7 +156,7 @@ struct display {
 			NULL 
 		};
 		::RegisterClassEx(&wc_);
-		int width = 600; int height = 200;
+		int width = 480; int height = 160;
 		RECT rect;
 		::GetClientRect(GetDesktopWindow(), &rect);
 		int x = rect.right / 2 - width / 2;
@@ -524,7 +524,7 @@ struct display {
 		}
 		auto tsize = ImGui::CalcTextSize(s.c_str());
 		static ImColor c_fps{ 1.f, 1.f, 1.f, 0.8f };
-		drawList->AddText(ImVec2(tl.x + w - tsize.x / 3 * 4, tsize.x / 3), c_fps, s.c_str());
+		drawList->AddText(ImVec2(tl.x + w - tsize.x / 4 * 5, tsize.x / 4), c_fps, s.c_str());
 		ImGui::PopFont();
 	}
 	
