@@ -441,7 +441,7 @@ struct display {
 				gear = "N";
 			auto tsize = ImGui::CalcTextSize("0");
 			auto pos = ImVec2(ptl.x + (w * p_gear - tsize.x) / 2, tl.y + (h - tsize.y) / 2);
-			drawList->AddText(pos, color_black, gear.c_str());
+			drawList->AddText(pos, color_white, gear.c_str());
 			ImGui::PopFont();
 		}
 
