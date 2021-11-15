@@ -44,12 +44,13 @@ source_group("Header Files" FILES ${DD_HEADERS})
 source_group("Header Files/imgui" FILES ${IMGUI_HEADERS})
 source_group("Source Files/imgui" FILES ${IMGUI_SOURCES})
 
-add_executable(dirt-display 
+add_executable(dirt-display WIN32
 	${DD_SOURCES} 
 	${IMGUI_SOURCES}
 	${DD_HEADERS}
 	${IMGUI_HEADERS}
 )
+target_link_options(dirt-display PRIVATE "/SUBSYSTEM:WINDOWS" "/ENTRY:mainCRTStartup")
 target_include_directories(dirt-display PUBLIC src ${Boost_INCLUDE_DIRS} deps/imgui)
 target_link_libraries(dirt-display 
 	Boost::program_options
